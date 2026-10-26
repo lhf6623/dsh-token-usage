@@ -13,14 +13,14 @@
     "dashboard",
     "chart"
   ],
-  "author": "dsh-token-usage contributors",
-  "homepage": "https://github.com/dsh-plugins/dsh-token-usage#readme",
+  "author": "lihaifeng",
+  "homepage": "https://github.com/lhf6623/dsh-token-usage#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dsh-plugins/dsh-token-usage.git"
+    "url": "git+https://github.com/lhf6623/dsh-token-usage.git"
   },
   "bugs": {
-    "url": "https://github.com/dsh-plugins/dsh-token-usage/issues"
+    "url": "https://github.com/lhf6623/dsh-token-usage/issues"
   },
   "engines": {
     "node": ">=20"
