@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "title": "Token 用量",
+    "description": "在「对话 / 轨迹」之后新增「Token 用量」标签页：折线图同时展示输入、输出、缓存读写，按时间与 API 两个维度查看。"
+  },
+  "view": {
+    "label": "Token 用量"
+  }
+}

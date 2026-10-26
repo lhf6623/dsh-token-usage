@@ -1,0 +1,8 @@
+# dsh-token-usage bundle patch: mounts the plugin into the profile layer stack.
+#
+# Row id and row name are deliberately different (same convention as the
+# official bundles): the id is what a user overrides in their profile's
+# cordis.patch.yml, the name must stay the package name.
+- insert:
+    - id: token-usage-dashboard
+      name: 'dsh-token-usage'

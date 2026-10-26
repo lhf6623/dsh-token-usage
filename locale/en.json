@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "title": "Token Usage",
+    "description": "Adds a Token Usage tab after Trajectory: one line chart showing input, output and cache tokens, by time range and API."
+  },
+  "view": {
+    "label": "Token Usage"
+  }
+}

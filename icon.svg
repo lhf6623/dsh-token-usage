@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Token Usage">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#1f6feb" />
+  <g fill="#ffffff">
+    <rect x="16" y="34" width="7" height="14" rx="2" />
+    <rect x="27" y="24" width="7" height="24" rx="2" />
+    <rect x="38" y="16" width="7" height="32" rx="2" />
+  </g>
+  <circle cx="46" cy="20" r="4" fill="#9ecbff" />
+</svg>
