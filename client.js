@@ -128,8 +128,59 @@ window.__ModuleLoader__.load({
       { key: 'cacheWrite', label: 'ui.cacheWrite', color: '#a259ff' },
     ];
 
+    // The unit suffix follows the UI language: Chinese reads 万 / 亿, not K / M.
+    // Chinese groups digits by 10^4, so 1,234,567 is "123.5万" rather than
+    // "1.23M". 千 is deliberately not used: it is not the routine counting unit
+    // for figures this size, so "1.2千" would read worse than plain "1235".
+    //
+    // The language is read at call time, not captured once, so switching it in
+    // settings re-renders with the right units.
+    //
+    // Set by apply() below. formatCount runs during render, long after apply,
+    // so a module-level handle is enough — and it keeps the helpers pure
+    // functions of their arguments instead of threading a context through every
+    // card, chip and axis tick.
+    let appCtx = null;
+
+    function currentLang() {
+      try {
+        const locale = appCtx && appCtx.get('locale');
+        if (locale && typeof locale.getLocale === 'function') {
+          const snap = locale.getLocale();
+          if (snap && typeof snap.active === 'string') return snap.active;
+        }
+      } catch (err) { /* fall through to the default */ }
+      // No locale service: the UI is Chinese-first, and zh is the dictionary
+      // this bundle is written in, so defaulting to zh keeps units consistent
+      // with the visible labels instead of mixing 万-less numbers with 中文.
+      return 'zh';
+    }
+
+    function isChinese(lang) {
+      return String(lang || '').toLowerCase().indexOf('zh') === 0;
+    }
+
+    function trimFixed(value, digits) {
+      // 12.00 万 reads as noise; 12 万 is what a person writes. Drop trailing
+      // zeros but keep at least one decimal for values like 1.5.
+      let s = value.toFixed(digits);
+      if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, '');
+      return s;
+    }
+
     function formatCount(n) {
       const v = Number(n) || 0;
+      if (isChinese(currentLang())) {
+        if (v >= 1e8) return trimFixed(v / 1e8, 2) + '亿';
+        if (v >= 1e4) {
+          // Once the 万 figure itself reaches four digits, a decimal is noise:
+          // 7500.7万 reads worse than 7501万, and the difference is invisible on
+          // a chart axis anyway.
+          const wan = v / 1e4;
+          return trimFixed(wan, wan >= 1000 ? 0 : 1) + '万';
+        }
+        return String(Math.round(v));
+      }
       if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
       if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
       if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
@@ -1104,6 +1155,9 @@ window.__ModuleLoader__.load({
         h(StatCard, {
           label: t('ui.avg'),
           value: calls > 0 ? formatCount(Math.round(sums.total / calls)) : '—',
+          // Without this the hover title shows the rounded 万 figure, which
+          // defeats the point of having a title at all.
+          full: calls > 0 ? formatFull(Math.round(sums.total / calls)) : undefined,
           note: calls > 0 ? formatFull(calls) + ' ' + t('ui.calls') : undefined,
         }),
         h(StatCard, {
@@ -1192,6 +1246,7 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
+        appCtx = ctx;
         ctx.effect(installStyles, 'dsh-token-usage: stylesheet');
 
         // The base lookup is swapped in once the locale service is reachable.

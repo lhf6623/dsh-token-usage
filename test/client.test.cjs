@@ -109,7 +109,12 @@ async function loadPlugin() {
   })
 
   const dicts = {}
+  // The real LocaleRuntime exposes getLocale().active; the client reads it to
+  // pick number units, so the stub must answer it too.
+  let activeLang = 'zh'
   const locale = {
+    getLocale() { return { active: activeLang, locales: [], revision: 0 } },
+    setActive(next) { activeLang = next },
     register(ns, lc, dict) { dicts[ns + ':' + lc] = dict; return function () {} },
     bind(ns) {
       return function (key, args) {
@@ -136,7 +141,7 @@ async function loadPlugin() {
     locale: locale,
     effect(fn) { fn(); return function () {} },
   })
-  return { api: api, registered: registered, dicts: dicts }
+  return { api: api, registered: registered, dicts: dicts, setLang: function (next) { activeLang = next } }
 }
 
 function text(node) { return harness.textOf(node).replace(/\s+/g, ' ').trim() }
@@ -170,7 +175,7 @@ async function boot() {
   const View = loaded.registered.Component
   const build = function () { return React.createElement(View, { sessionId: 'a' }) }
   const tree = await harness.renderRoot(build)
-  return { loaded: loaded, build: build, tree: tree }
+  return { loaded: loaded, build: build, tree: tree, setLang: loaded.setLang }
 }
 
 test('registers the conversation view tab after trajectory', async function () {
@@ -425,4 +430,52 @@ test('the legend sits above the plot, not below it', async function () {
   const chartAt = flat.indexOf(svg.node)
   assert.ok(legendAt >= 0 && chartAt >= 0, 'both present in document order')
   assert.ok(legendAt < chartAt, 'legend comes before the chart')
+})
+// --- number units follow the UI language -------------------------------
+
+// The fixture totals ~206.7K tokens. In Chinese that must read 万, not K/M,
+// because Chinese counts large figures in groups of 10^4.
+test('Chinese units read 万 and 亿, not K and M', async function () {
+  const ctx = await boot()
+  const body = text(ctx.tree)
+  assert.ok(body.indexOf('万') >= 0, 'Chinese shows 万; saw: ' + body.slice(0, 200))
+  assert.strictEqual(body.indexOf('K'), -1, 'no K suffix in Chinese')
+  assert.strictEqual(body.indexOf('M'), -1, 'no M suffix in Chinese, saw: ' + body.slice(0, 200))
+})
+
+test('English units stay K and M', async function () {
+  const ctx = await boot()
+  ctx.setLang('en')
+  const tree = await harness.renderRoot(ctx.build)
+  const body = text(tree)
+  assert.ok(body.indexOf('K') >= 0 || body.indexOf('M') >= 0, 'English shows K/M; saw: ' + body.slice(0, 200))
+  assert.strictEqual(body.indexOf('万'), -1, 'no 万 in English')
+  assert.strictEqual(body.indexOf('亿'), -1, 'no 亿 in English')
+})
+
+test('the y axis uses the same units as the cards', async function () {
+  const ctx = await boot()
+  const axis = []
+  harness.walk(ctx.tree, function (el) {
+    if (el.type === 'text' && el.props && el.props.className === 'tku-axis-text') {
+      axis.push(text(el))
+    }
+  })
+  assert.ok(axis.length > 0, 'axis labels exist')
+  const joined = axis.join(' ')
+  assert.ok(joined.indexOf('万') >= 0, 'axis uses 万; saw: ' + joined)
+  assert.strictEqual(joined.indexOf('K'), -1, 'axis has no K in Chinese')
+})
+
+test('units switch back when the language changes again', async function () {
+  const ctx = await boot()
+  assert.ok(text(ctx.tree).indexOf('万') >= 0, 'starts in Chinese')
+
+  ctx.setLang('en')
+  const en = await harness.renderRoot(ctx.build)
+  assert.strictEqual(text(en).indexOf('万'), -1, 'English dropped 万')
+
+  ctx.setLang('zh')
+  const zh = await harness.renderRoot(ctx.build)
+  assert.ok(text(zh).indexOf('万') >= 0, 'switching back restores 万')
 })
