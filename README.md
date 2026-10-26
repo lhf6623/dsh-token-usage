@@ -1,6 +1,10 @@
 # dsh-token-usage
 
-Token 用量看板，作为 DSH Web UI 的一个 Conversation View 标签页，排在「对话」「轨迹」之后。
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+
+DSH Web UI 的 Token 用量看板，作为 Conversation View 的一个标签页，排在「对话」「轨迹」之后。
+
+![Token 用量看板](docs/screenshot.png)
 
 - 只统计 token 数量，**不做费用估算**。
 - **一张折线图**同时画四条线：输入、输出、缓存读、缓存写。
@@ -19,6 +23,23 @@ Token 用量看板，作为 DSH Web UI 的一个 Conversation View 标签页，�
 
 四条曲线之所以放在同一张图而不是拆成四张小图，是因为它们共享同一个 y 轴量纲：把输入和缓存读画在同一个坐标系里，
 才能直接看出「这一次请求里，有多少是真正新算的、有多少是命中缓存的」。
+
+## 安装
+
+需要 DSH 桌面版或 Web 版。
+
+```
+plugin_manager install_bundle  target=<这个目录的绝对路径>
+```
+
+然后确认目标 profile 的 `package.json` 里 `dsh.profile.bundles` 包含 `dsh-token-usage`。
+装到 `desktop` profile 才会在桌面 GUI 生效；重启或刷新后，「轨迹」右侧会出现「Token 用量」标签页。
+
+从源码目录直接开发时，用 `link:` 依赖挂进 profile 即可热更新：
+
+```json
+{ "dependencies": { "dsh-token-usage": "link:D:/dsh-token-usage" } }
+```
 
 ## 数据来源
 
@@ -69,16 +90,15 @@ Host 不做日历推断，这样时区与夏令时都不会猜错。
 
 ```
 npm run check   # node --check 两个半区
-npm test        # 26 个测试：Host 聚合正确性 + Client 渲染与交互
+npm test        # 27 个测试：Host 聚合正确性 + Client 渲染与交互
 ```
 
 测试不依赖浏览器：`test/harness.cjs` 是一个只够用的 hooks 运行时，
 Client 测试把 `fetch` 直接接到真实的 Host 处理器上，所以跑的是真实的请求/响应契约。
 
-## 安装
+`docs/preview.html` 是截图用的静态快照（由真实组件渲染后序列化而来），
+不是手工画的示意稿；改界面后重新生成即可。
 
-```
-plugin_manager install_bundle  target=<这个目录的绝对路径>
-```
+## 许可
 
-装到 `desktop` profile 才会在当前桌面 GUI 生效。
+[MIT](LICENSE)

@@ -2,3 +2,6 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# screenshot build artifact (regenerate with: node docs/make-screenshot.cjs)
+docs/preview.html
