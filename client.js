@@ -36,10 +36,9 @@ window.__ModuleLoader__.load({
       'ui.to': '至',
       'ui.customHint': '最长 {days} 天',
       'ui.customInvalid': '日期无效：结束不能早于开始',
-      'ui.granularity': '粒度',
-      'ui.hour': '小时',
-      'ui.day': '天',
-      'ui.month': '月',
+      'ui.pickModel': '先选一个模型',
+      'ui.pickModelHint': '这个范围里有 {n} 个模型，选一个查看它的用量。',
+      'ui.noModel': '这个范围里没有模型调用记录。',
       'ui.total': '合计',
       'ui.input': '输入',
       'ui.output': '输出',
@@ -49,10 +48,9 @@ window.__ModuleLoader__.load({
       'ui.reasoning': '推理',
       'ui.calls': '调用',
       'ui.api': 'API',
-      'ui.apiCount': '共 {n} 个 API',
-      'ui.apiAll': '全部',
-      'ui.apiSelected': '已选 {n} / {total}',
-      'ui.breakdown': '按 API',
+      'ui.metric': '指标',
+      'ui.value': '数值',
+      'ui.breakdown': '构成',
       'ui.timeline': '趋势',
       'ui.scanned': '已扫描 {sessions} 个会话',
       'ui.failed': '，{n} 个读取失败',
@@ -63,7 +61,7 @@ window.__ModuleLoader__.load({
       'ui.globalNote': '统计本机全部会话，不限于当前对话。',
       'ui.sessionNote': '统计当前对话及其派生会话（子代理 / fork）。',
       'ui.hint': '只统计已记录的模型响应 token 数，不含费用估算。',
-      'ui.legendHint': '点击图例可隐藏该系列；点击 API 可只看它',
+      'ui.legendHint': '点击图例可隐藏对应曲线',
       'ui.refresh': '刷新',
       'ui.avg': '平均每次',
       'ui.noSeries': '无数据',
@@ -90,10 +88,9 @@ window.__ModuleLoader__.load({
       'ui.to': 'to',
       'ui.customHint': 'up to {days} days',
       'ui.customInvalid': 'Invalid dates: end is before start',
-      'ui.granularity': 'Group by',
-      'ui.hour': 'Hour',
-      'ui.day': 'Day',
-      'ui.month': 'Month',
+      'ui.pickModel': 'Pick a model',
+      'ui.pickModelHint': 'This range has {n} models. Pick one to see its usage.',
+      'ui.noModel': 'No model calls recorded in this range.',
       'ui.total': 'Total',
       'ui.input': 'Input',
       'ui.output': 'Output',
@@ -103,10 +100,9 @@ window.__ModuleLoader__.load({
       'ui.reasoning': 'Reasoning',
       'ui.calls': 'Calls',
       'ui.api': 'API',
-      'ui.apiCount': '{n} APIs',
-      'ui.apiAll': 'All',
-      'ui.apiSelected': '{n} of {total} selected',
-      'ui.breakdown': 'By API',
+      'ui.metric': 'Metric',
+      'ui.value': 'Value',
+      'ui.breakdown': 'Makeup',
       'ui.timeline': 'Timeline',
       'ui.scanned': 'Scanned {sessions} sessions',
       'ui.failed': ', {n} unreadable',
@@ -117,7 +113,7 @@ window.__ModuleLoader__.load({
       'ui.globalNote': 'Counts every session on this machine, not just this conversation.',
       'ui.sessionNote': 'Counts this conversation and the sessions derived from it (subagents, forks).',
       'ui.hint': 'Recorded response tokens only; no cost estimate.',
-      'ui.legendHint': 'Click a legend entry to hide it; click an API to isolate it',
+      'ui.legendHint': 'Click a legend entry to hide that line',
       'ui.refresh': 'Refresh',
       'ui.avg': 'Avg per call',
       'ui.noSeries': 'No data',
@@ -130,14 +126,6 @@ window.__ModuleLoader__.load({
       { key: 'output', label: 'ui.output', color: '#22b07d' },
       { key: 'cacheRead', label: 'ui.cacheRead', color: '#f2994a' },
       { key: 'cacheWrite', label: 'ui.cacheWrite', color: '#a259ff' },
-    ];
-
-    // API chips and the table keep their own palette: unlike the metric hues
-    // this is categorical artwork, only has to be distinguishable.
-    const API_PALETTE = [
-      '#4c8dff', '#22b07d', '#f2994a', '#a259ff',
-      '#e0568a', '#12b5cb', '#d4b106', '#7f8c99',
-      '#e06666', '#3f7f3f', '#8e6bd6', '#b5651d',
     ];
 
     function formatCount(n) {
@@ -200,6 +188,8 @@ window.__ModuleLoader__.load({
       return key;
     }
 
+    // An API is one provider + model pair. It is an identity, not a colour:
+    // exactly one of them is on screen at a time.
     function seriesKeyOf(provider, model) {
       return provider + '||' + model;
     }
@@ -247,12 +237,12 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Granularity that keeps the plotted point count readable for a span.
-    function autoBucket(from, to) {
-      const span = Math.max(0, to - from);
-      if (span <= 3 * DAY_MS) return 'hour';
-      if (span <= 400 * DAY_MS) return 'day';
-      return 'month';
+    // Granularity is a consequence of the chosen range, never a separate
+    // control: "today" and "yesterday" are read by the hour, everything
+    // longer by the day. A window of one day split into days would be a
+    // single dot, so the switch is by span rather than by preset name.
+    function bucketFor(from, to) {
+      return (to - from) <= 2 * DAY_MS ? 'hour' : 'day';
     }
 
     function tzOffsetMinutes() {
@@ -389,7 +379,54 @@ window.__ModuleLoader__.load({
 .tku-panel-title { font-size: 13px; font-weight: 600; }
 .tku-panel-note { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 
-.tku-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+/* The API dimension: an exclusive list, one row per model. */
+.tku-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.tku-pick {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  padding: 5px 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+.tku-pick:hover { background: var(--dsw-alias-bg-layer-2); }
+.tku-pick[data-on='true'] {
+  border-color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+.tku-pick-radio {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dsw-alias-border-l2);
+  flex: none;
+  box-sizing: border-box;
+}
+.tku-pick-radio[data-on='true'] {
+  border-color: var(--dsw-alias-brand-primary);
+  background:
+    radial-gradient(circle, var(--dsw-alias-brand-primary) 0 3px, transparent 3.5px);
+}
+.tku-pick-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tku-pick-provider { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tku-pick-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tku-pick-total { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; flex: none; }
+
+.tku-card-value-small { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tku-chip {
   display: inline-flex;
   align-items: center;
@@ -407,8 +444,7 @@ window.__ModuleLoader__.load({
 .tku-chip[data-on='true'] { border-color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); }
 .tku-chip[data-on='false'] { opacity: 0.45; }
 .tku-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
-.tku-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tku-chip-total { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+.tku-legend-label { display: inline-flex; align-items: center; gap: 6px; }
 
 .tku-plot-wrap { position: relative; width: 100%; }
 .tku-svg { display: block; width: 100%; overflow: visible; }
@@ -541,7 +577,10 @@ window.__ModuleLoader__.load({
     function StatCard(props) {
       return h('div', { className: 'tku-card' },
         h('div', { className: 'tku-card-label' }, props.label),
-        h('div', { className: 'tku-card-value', title: props.full || undefined }, props.value),
+        h('div', {
+          className: props.small ? 'tku-card-value tku-card-value-small' : 'tku-card-value',
+          title: props.full || (typeof props.value === 'string' ? props.value : undefined),
+        }, props.value),
         props.note ? h('div', { className: 'tku-card-note' }, props.note) : null);
     }
 
@@ -717,77 +756,69 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'tku-plot-wrap', ref: wrapRef }, svg, tip);
     }
 
-    function ApiChips(props) {
+    /**
+     * The API dimension is a single choice, not a filter set: showing several
+     * models at once on one y-axis mixes incomparable traffic (a 200k-token
+     * batch model next to a 3k-token chat model) and makes the lines useless.
+     */
+    function ApiPicker(props) {
       const apis = props.apis;
-      const selected = props.selected;
-      const colors = props.colors;
+      const selectedKey = props.selectedKey;
       const t = props.t;
-      const allOn = selected === null;
-      // Hide the row entirely when a single API exists: there is nothing to
-      // filter, and the chip would only repeat the breakdown heading.
-      if (apis.length < 2) return null;
+      if (apis.length === 0) return null;
 
-      return h('div', { className: 'tku-chips' },
-        h('button', {
-          type: 'button',
-          className: 'tku-chip',
-          'data-on': String(allOn),
-          onClick: function () { props.onToggleAll(); },
-        },
-          h('span', { className: 'tku-chip-name' }, t('ui.apiAll')),
-          h('span', { className: 'tku-chip-total' }, String(apis.length))),
+      return h('div', { className: 'tku-picker', role: 'radiogroup', 'aria-label': t('ui.api') },
         apis.map(function (a) {
           const key = seriesKeyOf(a.provider, a.model);
-          const on = allOn || selected.has(key);
+          const on = key === selectedKey;
           return h('button', {
             key: key,
             type: 'button',
-            className: 'tku-chip',
+            role: 'radio',
+            'aria-checked': on,
+            className: 'tku-pick',
             'data-on': String(on),
-            title: a.provider + ' / ' + a.model + ' — ' + formatFull(a.total),
-            onClick: function () { props.onToggle(key); },
+            title: a.provider + ' / ' + a.model + ' — ' + formatFull(a.total) + ' / ' + formatFull(a.calls) + ' ' + t('ui.calls'),
+            onClick: function () { props.onSelect(key); },
           },
-            h('span', { className: 'tku-chip-dot', style: { background: colors[key] || '#888' } }),
-            h('span', { className: 'tku-chip-name' }, a.provider + ' / ' + a.model),
-            h('span', { className: 'tku-chip-total' }, formatCount(a.total)));
+            h('span', { className: 'tku-pick-radio', 'data-on': String(on) }),
+            // Provider reads first: several providers serve the same model name
+            // (three of them ship 'deepseek-flash'), so a list keyed on the model
+            // name alone looks like the same row repeated three times.
+            h('span', { className: 'tku-pick-body' },
+              h('span', { className: 'tku-pick-provider' }, a.provider),
+              h('span', { className: 'tku-pick-model' }, a.model)),
+            h('span', { className: 'tku-pick-total' }, formatCount(a.total)));
         }));
     }
 
     function BreakdownTable(props) {
-      const combos = props.combos;
-      const colors = props.colors;
+      const combo = props.combo;
       const t = props.t;
-      const totalAll = combos.reduce(function (acc, c) { return acc + (c.total || 0); }, 0);
-      const maxTotal = combos.reduce(function (acc, c) { return Math.max(acc, c.total || 0); }, 0);
+      if (!combo) return null;
 
       const head = h('thead', null, h('tr', null,
-        h('th', null, t('ui.provider')),
-        h('th', null, t('ui.model')),
-        h('th', null, t('ui.input')),
-        h('th', null, t('ui.output')),
-        h('th', null, t('ui.cacheRead')),
-        h('th', null, t('ui.cacheWrite')),
-        h('th', null, t('ui.calls')),
-        h('th', null, t('ui.total')),
+        h('th', null, t('ui.metric')),
+        h('th', null, t('ui.value')),
         h('th', null, t('ui.share'))));
 
-      const rows = combos.map(function (c) {
-        const key = seriesKeyOf(c.provider, c.model);
-        const share = totalAll > 0 ? ((c.total / totalAll) * 100).toFixed(1) + '%' : '—';
-        const barW = maxTotal > 0 ? Math.max(2, Math.round((c.total / maxTotal) * 44)) : 2;
-        return h('tr', { key: key },
-          h('td', null, h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 } },
-            h('span', { className: 'tku-chip-dot', style: { background: colors[key] || '#888' } }),
-            c.provider)),
-          h('td', null, h('span', { className: 'tku-mono' }, c.model)),
-          h('td', null, formatFull(c.input)),
-          h('td', null, formatFull(c.output)),
-          h('td', null, formatFull(c.cacheRead)),
-          h('td', null, formatFull(c.cacheWrite)),
-          h('td', null, formatFull(c.calls)),
+      const total = combo.total || 0;
+      const rows = [
+        { key: 'input', label: t('ui.input'), value: combo.input || 0 },
+        { key: 'output', label: t('ui.output'), value: combo.output || 0 },
+        { key: 'cacheRead', label: t('ui.cacheRead'), value: combo.cacheRead || 0 },
+        { key: 'cacheWrite', label: t('ui.cacheWrite'), value: combo.cacheWrite || 0 },
+      ].map(function (row) {
+        const metric = METRICS.filter(function (m) { return m.key === row.key; })[0];
+        const share = total > 0 ? ((row.value / total) * 100).toFixed(1) + '%' : '—';
+        const barW = total > 0 ? Math.max(2, Math.round((row.value / total) * 60)) : 2;
+        return h('tr', { key: row.key },
+          h('td', null, h('span', { className: 'tku-legend-label' },
+            h('span', { className: 'tku-chip-dot', style: { background: metric ? metric.color : '#888' } }),
+            row.label)),
           h('td', null, h('span', { className: 'tku-bar-cell' },
-            h('span', { className: 'tku-bar-mini', style: { width: barW, background: colors[key] || '#888' } }),
-            h('strong', null, formatFull(c.total)))),
+            h('span', { className: 'tku-bar-mini', style: { width: barW, background: metric ? metric.color : '#888' } }),
+            h('strong', null, formatFull(row.value)))),
           h('td', null, share));
       });
 
@@ -825,18 +856,13 @@ window.__ModuleLoader__.load({
       const scopeState = React.useState('all');
       const scope = scopeState[0];
       const setScope = scopeState[1];
-      const bucketState = React.useState('day');
-      const bucket = bucketState[0];
-      const setBucket = bucketState[1];
-      const touchedState = React.useState(false);
-      const bucketTouched = touchedState[0];
-      const setBucketTouched = touchedState[1];
       const hiddenState = React.useState({});
       const hiddenMetrics = hiddenState[0];
       const setHiddenMetrics = hiddenState[1];
-      const selState = React.useState(null); // null = every API
-      const selectedApis = selState[0];
-      const setSelectedApis = selState[1];
+      // Exactly one API is shown at a time; null means "nothing picked yet".
+      const selState = React.useState(null);
+      const selectedKey = selState[0];
+      const setSelectedKey = selState[1];
       const nonceState = React.useState(0);
       const nonce = nonceState[0];
       const setNonce = nonceState[1];
@@ -850,9 +876,8 @@ window.__ModuleLoader__.load({
 
       const rangeValid = win !== null;
 
-      // Granularity follows the window unless the user overrode it after the
-      // last range change; switching the range re-arms the automatic choice.
-      const effectiveBucket = bucketTouched ? bucket : (win ? autoBucket(win.from, win.to) : 'day');
+      // Granularity is derived from the range itself, not chosen separately.
+      const effectiveBucket = win ? bucketFor(win.from, win.to) : 'day';
 
       const winFrom = win ? win.from : -1;
       const winTo = win ? win.to : -1;
@@ -879,53 +904,45 @@ window.__ModuleLoader__.load({
       }, [winFrom, winTo, effectiveBucket, scope, sessionId, nonce]);
 
       const data = state.data;
-
-      // Stable API colours: the roster order comes from the payload, so an API
-      // keeps its hue while only the time range or the filter changes.
-      const colors = React.useMemo(function () {
-        const map = {};
-        if (!data || !Array.isArray(data.combos)) return map;
-        data.combos.forEach(function (c, i) {
-          map[seriesKeyOf(c.provider, c.model)] = API_PALETTE[i % API_PALETTE.length];
-        });
-        return map;
-      }, [data]);
-
       const apis = (data && Array.isArray(data.combos)) ? data.combos : [];
+      const apiKeys = React.useMemo(function () {
+        return apis.map(function (a) { return seriesKeyOf(a.provider, a.model); });
+      }, [apis]);
+
+      // The effective choice is derived during render, not repaired in an
+      // effect: an effect would first paint the "nothing selected" state for
+      // one frame, so the panel would flash empty on every range change.
+      // The busiest model is the fallback, because a blank chart on open would
+      // show nothing at all for no good reason.
+      const activeKey = (selectedKey !== null && apiKeys.indexOf(selectedKey) >= 0)
+        ? selectedKey
+        : (apiKeys.length > 0 ? apiKeys[0] : null);
 
       React.useEffect(function () {
-        const live = new Set(apis.map(function (a) { return seriesKeyOf(a.provider, a.model); }));
-        setSelectedApis(function (prev) {
-          if (prev === null) return prev;
-          const next = new Set();
-          let changed = false;
-          prev.forEach(function (k) { if (live.has(k)) next.add(k); else changed = true; });
-          if (!changed) return prev;
-          return next.size === 0 ? null : next;
-        });
-      }, [data]);
+        // Persist the fallback so the picker keeps a real selection.
+        if (activeKey !== selectedKey) setSelectedKey(activeKey);
+      }, [activeKey, selectedKey]);
+
+      const combo = React.useMemo(function () {
+        if (activeKey === null) return null;
+        for (let i = 0; i < apis.length; i++) {
+          if (seriesKeyOf(apis[i].provider, apis[i].model) === activeKey) return apis[i];
+        }
+        return null;
+      }, [apis, activeKey]);
 
       // A bucket's series is [rosterIndex, input, output, cacheRead, cacheWrite,
       // calls]. The roster itself lives once at the top of the payload, so a
       // few hundred buckets do not repeat every provider/model string.
-      const selectedIndexes = React.useMemo(function () {
-        if (selectedApis === null) return null;
-        const set = new Set();
-        apis.forEach(function (a, i) {
-          if (selectedApis.has(seriesKeyOf(a.provider, a.model))) set.add(i);
-        });
-        return set;
-      }, [apis, selectedApis]);
-
-      // Filtering the roster costs no request: the per-API split already
-      // travels inside every bucket, so the lines are recomputed locally.
       const buckets = React.useMemo(function () {
         const rows = (data && Array.isArray(data.buckets)) ? data.buckets : [];
-        if (selectedIndexes === null) return rows;
+        if (activeKey === null) return [];
+        const idx = apiKeys.indexOf(activeKey);
+        if (idx < 0) return [];
         return rows.map(function (b) {
           const acc = { key: b.key, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, total: 0, cache: 0 };
           (b.series || []).forEach(function (row) {
-            if (!selectedIndexes.has(row[0])) return;
+            if (row[0] !== idx) return;
             acc.input += row[1] || 0;
             acc.output += row[2] || 0;
             acc.cacheRead += row[3] || 0;
@@ -936,7 +953,7 @@ window.__ModuleLoader__.load({
           acc.cache = acc.cacheRead + acc.cacheWrite;
           return acc;
         });
-      }, [data, selectedIndexes]);
+      }, [data, activeKey, apiKeys]);
 
       const visibleMetrics = React.useMemo(function () {
         return METRICS.filter(function (m) { return !hiddenMetrics[m.key]; });
@@ -955,19 +972,8 @@ window.__ModuleLoader__.load({
         return acc;
       }, [buckets]);
 
-      const visibleCombos = React.useMemo(function () {
-        if (selectedApis === null) return apis;
-        return apis.filter(function (a) { return selectedApis.has(seriesKeyOf(a.provider, a.model)); });
-      }, [apis, selectedApis]);
-
       function selectRange(kind) {
         setRangeKind(kind);
-        setBucketTouched(false);
-      }
-
-      function selectBucket(next) {
-        setBucket(next);
-        setBucketTouched(true);
       }
 
       function toggleMetric(key) {
@@ -977,24 +983,6 @@ window.__ModuleLoader__.load({
           else next[key] = true;
           return next;
         });
-      }
-
-      function toggleApi(key) {
-        setSelectedApis(function (prev) {
-          const base = prev === null
-            ? new Set(apis.map(function (a) { return seriesKeyOf(a.provider, a.model); }))
-            : new Set(prev);
-          if (base.has(key)) base.delete(key);
-          else base.add(key);
-          // "Everything on" and "nothing on" both collapse to the unfiltered
-          // view: an empty chart is never a useful resting state.
-          if (base.size === apis.length || base.size === 0) return null;
-          return base;
-        });
-      }
-
-      function toggleAllApis() {
-        setSelectedApis(null);
       }
 
       function refresh() {
@@ -1032,12 +1020,6 @@ window.__ModuleLoader__.load({
         return { value: r.value, label: t(r.key) };
       });
 
-      const bucketOptions = [
-        { value: 'hour', label: t('ui.hour') },
-        { value: 'day', label: t('ui.day') },
-        { value: 'month', label: t('ui.month') },
-      ];
-
       const toolbar = h('div', { className: 'tku-toolbar' },
         h('div', { className: 'tku-group' },
           h('span', { className: 'tku-group-label' }, t('ui.scope')),
@@ -1058,15 +1040,7 @@ window.__ModuleLoader__.load({
             onChange: selectRange,
             options: rangeOptions,
           })),
-        customBlock,
-        h('div', { className: 'tku-group' },
-          h('span', { className: 'tku-group-label' }, t('ui.granularity')),
-          h(Segmented, {
-            label: t('ui.granularity'),
-            value: effectiveBucket,
-            onChange: selectBucket,
-            options: bucketOptions,
-          })));
+        customBlock);
 
       function retryButton() {
         return h('button', { type: 'button', className: 'tku-btn', onClick: refresh }, t('ui.retry'));
@@ -1112,10 +1086,20 @@ window.__ModuleLoader__.load({
           note: calls > 0 ? formatFull(calls) + ' ' + t('ui.calls') : undefined,
         }),
         h(StatCard, {
-          label: t('ui.api'),
-          value: String(apis.length),
-          note: selectedApis === null ? t('ui.apiAll') : t('ui.apiSelected', { n: selectedApis.size, total: apis.length }),
+          label: t('ui.model'),
+          value: combo ? combo.provider : '—',
+          note: combo ? combo.model : undefined,
+          small: true,
         }));
+
+      // Two different empty states: nothing recorded at all in this window,
+      // versus data present but no API available to chart.
+      if (apis.length === 0) {
+        return h('div', { className: 'tku-root' }, header, toolbar, cards,
+          h('div', { className: 'tku-state' },
+            h('div', null, t('ui.noModel')),
+            h('div', { style: { fontSize: 11 } }, t('ui.emptyHint'))));
+      }
 
       if (!(sums.total > 0)) {
         return h('div', { className: 'tku-root' }, header, toolbar, cards,
@@ -1128,13 +1112,11 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tku-panel-head' },
           h('div', { className: 'tku-panel-title' }, t('ui.timeline')),
           h('div', { className: 'tku-panel-note' }, t('ui.legendHint'))),
-        h(ApiChips, {
+        h(ApiPicker, {
           apis: apis,
-          selected: selectedApis,
-          colors: colors,
+          selectedKey: activeKey,
           t: t,
-          onToggle: toggleApi,
-          onToggleAll: toggleAllApis,
+          onSelect: setSelectedKey,
         }),
         h(LineChart, {
           buckets: buckets,
@@ -1164,12 +1146,12 @@ window.__ModuleLoader__.load({
       const scan = data.scan || {};
       const tablePanel = h('div', { className: 'tku-panel' },
         h('div', { className: 'tku-panel-head' },
-          h('div', { className: 'tku-panel-title' }, t('ui.breakdown')),
+          h('div', { className: 'tku-panel-title' },
+            t('ui.breakdown') + (combo ? ' · ' + combo.model : '')),
           h('div', { className: 'tku-panel-note' },
-            t('ui.apiCount', { n: apis.length }) +
-            ' · ' + t('ui.scanned', { sessions: scan.scanned || 0 }) +
+            t('ui.scanned', { sessions: scan.scanned || 0 }) +
             (scan.failed ? t('ui.failed', { n: scan.failed }) : ''))),
-        h(BreakdownTable, { combos: visibleCombos, colors: colors, t: t }));
+        h(BreakdownTable, { combo: combo, t: t }));
 
       const foot = h('div', { className: 'tku-foot' },
         h('span', null, t('ui.hint')),

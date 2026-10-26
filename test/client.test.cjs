@@ -210,35 +210,81 @@ test('requests a window in epochs with the viewer timezone', async function () {
   assert.ok(qs.get('tzOffset') !== null, 'tzOffset is sent')
 })
 
-test('lists every API found in the data', async function () {
+test('offers every API found in the data as a choice', async function () {
   const ctx = await boot()
   const body = text(ctx.tree)
-  assert.ok(body.indexOf('deepseek-flash') >= 0)
-  assert.ok(body.indexOf('deepseek-v4-pro') >= 0)
-  assert.strictEqual(rowCount(ctx.tree), 3, 'header + one row per API')
+  assert.ok(body.indexOf('deepseek-flash') >= 0, 'roster lists the flash model')
+  assert.ok(body.indexOf('deepseek-v4-pro') >= 0, 'roster lists the pro model')
 })
 
-test('legend clicks hide a line without refetching', async function () {
+test('charts exactly one model at a time', async function () {
+  const ctx = await boot()
+  // The busiest model is preselected, so the chart is never blank on open.
+  assert.strictEqual(pathCount(ctx.tree), 4, 'still four metric lines')
+  const card = text(ctx.tree)
+  assert.ok(card.indexOf('fan') >= 0, 'shows the provider of the selected model')
+
+  const seen = []
+  // Rows read "provider + model", so match on the model name anywhere.
+  for (const model of ['deepseek-v4-pro', 'deepseek-flash']) {
+    clickOnce(ctx.tree, function (s) { return s.indexOf(model) >= 0 })
+    ctx.tree = await harness.renderRoot(ctx.build)
+    // One pick is active at a time: the chosen row is the only one flagged.
+    let on = 0
+    harness.walk(ctx.tree, function (el) {
+      if (el.type === 'button' && el.props && el.props['data-on'] === 'true') on++
+    })
+    assert.strictEqual(on, 1, 'exactly one API may be selected')
+    seen.push(text(ctx.tree))
+  }
+  assert.notStrictEqual(seen[0], seen[1], 'switching model changed what is charted')
+})
+
+test('the picker distinguishes providers that serve the same model', async function () {
+  const ctx = await boot()
+  // Two providers, same model name: the rows must not read as duplicates.
+  const rows = []
+  harness.walk(ctx.tree, function (el) {
+    if (el.type === 'button' && el.props && el.props.role === 'radio') {
+      const provider = []
+      harness.walk(el, function (inner) {
+        if (inner.type === 'span' && inner.props && inner.props.className === 'tku-pick-provider') provider.push(text(inner))
+      })
+      rows.push(provider.join(''))
+    }
+  })
+  assert.ok(rows.length >= 2, 'at least two models offered')
+  assert.strictEqual(new Set(rows).size, rows.length, 'every row names a distinct provider')
+})
+
+test('picking another model never refetches', async function () {
+  const ctx = await boot()
+  fetchCalls.length = 0
+  clickOnce(ctx.tree, function (s) { return s.indexOf('deepseek-v4-pro') >= 0 })
+  await harness.renderRoot(ctx.build)
+  assert.strictEqual(fetchCalls.length, 0, 'the roster already travels with the payload')
+})
+
+test('the breakdown table describes the selected model only', async function () {
+  const ctx = await boot()
+  assert.strictEqual(rowCount(ctx.tree), 5, 'header + one row per metric')
+  const body = text(ctx.tree)
+  for (const label of ['输入', '输出', '缓存读', '缓存写']) {
+    assert.ok(body.indexOf(label) >= 0, label + ' listed')
+  }
+})
+
+test('legend toggles metrics, not models', async function () {
   const ctx = await boot()
   fetchCalls.length = 0
   clickOnce(ctx.tree, function (s) { return s.indexOf('缓存写') === 0 })
   const tree = await harness.renderRoot(ctx.build)
-  assert.strictEqual(pathCount(tree), 3, 'one line hidden')
+  assert.strictEqual(pathCount(tree), 3, 'one metric hidden')
   assert.strictEqual(fetchCalls.length, 0, 'hiding a metric must not refetch')
 
   clickOnce(tree, function (s) { return s.indexOf('缓存写') === 0 })
   const back = await harness.renderRoot(ctx.build)
   assert.strictEqual(pathCount(back), 4, 'line restored')
-})
-
-test('isolating an API is a local filter, not a request', async function () {
-  const ctx = await boot()
-  fetchCalls.length = 0
-  clickOnce(ctx.tree, function (s) { return s.indexOf('deepseek-official / deepseek-v4-pro') === 0 })
-  const tree = await harness.renderRoot(ctx.build)
-  assert.strictEqual(fetchCalls.length, 0, 'API filtering must not refetch')
-  assert.strictEqual(rowCount(tree), 2, 'only the isolated API remains in the table')
-  assert.ok(text(tree).indexOf('已选 1 / 2') >= 0)
 })
 
 test('every time preset moves the window and refetches once', async function () {
@@ -250,6 +296,23 @@ test('every time preset moves the window and refetches once', async function () 
     assert.strictEqual(fetchCalls.length, 1, label + ' should refetch exactly once')
     const qs = new URLSearchParams(fetchCalls[0].split('?')[1])
     assert.ok(Number(qs.get('to')) > Number(qs.get('from')), label + ' produced an inverted window')
+  }
+})
+
+test('granularity follows the range instead of being a control', async function () {
+  const ctx = await boot()
+  // There is no granularity control on screen any more.
+  const body = text(ctx.tree)
+  assert.ok(body.indexOf('粒度') < 0, 'no granularity control')
+  assert.ok(findButton(ctx.tree, function (s) { return s === '小时' }) === null, 'no hour button')
+
+  // A single day is read by the hour; anything longer by the day.
+  for (const [label, expected] of [['今天', 'hour'], ['昨天', 'hour'], ['近 7 天', 'day'], ['近 30 天', 'day'], ['本月', 'day'], ['上月', 'day']]) {
+    fetchCalls.length = 0
+    clickOnce(ctx.tree, function (s) { return s === label })
+    ctx.tree = await harness.renderRoot(ctx.build)
+    const qs = new URLSearchParams(fetchCalls[0].split('?')[1])
+    assert.strictEqual(qs.get('bucket'), expected, label + ' should be charted by ' + expected)
   }
 })
 
@@ -276,7 +339,7 @@ test('switching scope asks for the session lineage', async function () {
 test('a failed request shows an error state with a retry button', async function () {
   const ctx = await boot()
   failNext = true
-  clickOnce(ctx.tree, function (s) { return s === '小时' })
+  clickOnce(ctx.tree, function (s) { return s === '近 7 天' })
   const tree = await harness.renderRoot(ctx.build)
   assert.ok(text(tree).indexOf('无法读取 token 用量') >= 0)
   assert.ok(findButton(tree, function (s) { return s === '重试' }), 'retry button shown')
