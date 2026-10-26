@@ -248,7 +248,7 @@ test('the picker distinguishes providers that serve the same model', async funct
     if (el.type === 'button' && el.props && el.props.role === 'radio') {
       const provider = []
       harness.walk(el, function (inner) {
-        if (inner.type === 'span' && inner.props && inner.props.className === 'tku-pick-provider') provider.push(text(inner))
+        if (inner.type === 'span' && inner.props && inner.props.className === 'tku-model-provider') provider.push(text(inner))
       })
       rows.push(provider.join(''))
     }
@@ -349,4 +349,80 @@ test('injects its stylesheet exactly once', async function () {
   const ctx = await boot()
   assert.strictEqual(installedStyles.length, 1)
   assert.ok(installedStyles[0].textContent.indexOf('.tku-root') >= 0)
+})
+// --- layout: where the two controls live -------------------------------
+// These assert position, not styling: the model picker must sit in the
+// toolbar (it chooses which data the panel shows) and the legend must sit
+// above the plot (it names the lines the plot draws).
+
+// harness.walk() visits every node but gives no way to stop or to describe
+// where a node sits, so the layout tests do their own depth-first search.
+function findFirst(tree, pred) {
+  let hit = null
+  function visit(node) {
+    if (hit || node === null || node === undefined) return
+    if (Array.isArray(node)) { node.forEach(visit); return }
+    if (typeof node !== 'object' || !node.props) return
+    if (pred(node)) { hit = { node: node }; return }
+    const kids = node.props.children
+    if (kids === undefined) return
+    ;(Array.isArray(kids) ? kids : [kids]).forEach(visit)
+  }
+  visit(tree)
+  return hit
+}
+
+test('the model picker lives in the toolbar, not inside the chart panel', async function () {
+  const ctx = await boot()
+  const found = findFirst(ctx.tree, function (el) {
+    return el.props && el.props.className === 'tku-toolbar'
+  })
+  assert.ok(found, 'toolbar rendered')
+  const insideTools = []
+  harness.walk(found.node, function (el) {
+    if (el.type === 'button' && el.props && el.props.role === 'radio') insideTools.push(el)
+  })
+  assert.ok(insideTools.length >= 2, 'the model choices are inside the toolbar')
+
+  // ...and none of them leaked back into the chart panel.
+  const panels = []
+  harness.walk(ctx.tree, function (el) {
+    if (el.props && typeof el.props.className === 'string' && el.props.className.indexOf('tku-panel') === 0) panels.push(el)
+  })
+  for (const panel of panels) {
+    let radios = 0
+    harness.walk(panel, function (el) {
+      if (el.type === 'button' && el.props && el.props.role === 'radio') radios++
+    })
+    assert.strictEqual(radios, 0, 'no model radio inside a panel')
+  }
+})
+
+test('the legend sits above the plot, not below it', async function () {
+  const ctx = await boot()
+  const legend = findFirst(ctx.tree, function (el) {
+    return el.props && el.props.className === 'tku-legend'
+  })
+  assert.ok(legend, 'legend rendered')
+  const svg = findFirst(ctx.tree, function (el) { return el.type === 'svg' })
+  assert.ok(svg, 'chart rendered')
+
+  // Compare document order: the legend's path must be a prefix of the
+  // chart's path, and reach the chart only after passing the legend.
+  const flat = []
+  function visit(node) {
+    if (node === null || node === undefined) return
+    if (typeof node === 'string' || typeof node === 'number') return
+    if (Array.isArray(node)) { node.forEach(visit); return }
+    if (typeof node !== 'object' || !node.props) return
+    flat.push(node)
+    const kids = node.props.children
+    if (kids === undefined) return
+    ;(Array.isArray(kids) ? kids : [kids]).forEach(visit)
+  }
+  visit(ctx.tree)
+  const legendAt = flat.indexOf(legend.node)
+  const chartAt = flat.indexOf(svg.node)
+  assert.ok(legendAt >= 0 && chartAt >= 0, 'both present in document order')
+  assert.ok(legendAt < chartAt, 'legend comes before the chart')
 })

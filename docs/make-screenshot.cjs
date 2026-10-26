@@ -201,8 +201,75 @@ async function main() {
 
   nodeFs.writeFileSync(OUT_HTML, page, 'utf8')
   console.log('wrote', OUT_HTML, '(' + page.length + ' bytes)')
-  console.log('now run: chrome --headless=new --window-size=1060,700 --force-device-scale-factor=2 \\')
-  console.log('           --screenshot="' + OUT_PNG + '" "file:///' + OUT_HTML.replace(/\\/g, '/') + '"')
 }
 
-main().catch(function (e) { console.error('FAILED:', e.message); process.exit(1) })
+// Screenshot with headless Chrome, sized to the rendered content.
+//
+// The page height is measured, not guessed: a hardcoded window either clips the
+// breakdown table or leaves a strip of dead background at the bottom. Chrome's
+// --dump-dom is used as a measuring pass so no extra dependency is needed.
+function findChrome() {
+  const candidates = [
+    'C:/Program Files/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+    'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
+  ]
+  for (const c of candidates) if (nodeFs.existsSync(c)) return c
+  return null
+}
+
+async function measureAndShoot() {
+  const chrome = findChrome()
+  if (!chrome) {
+    console.log('no Chrome/Edge found; open this file and screenshot it yourself:')
+    console.log('  file:///' + OUT_HTML.replace(/\\/g, '/'))
+    return
+  }
+  const { execFileSync } = require('node:child_process')
+  const WIDTH = 1060
+
+  // Measuring pass: report the lowest painted edge in the document title.
+  //
+  // The root box is the wrong thing to measure — it carries trailing padding
+  // and stretches with the viewport, so sizing the window to it leaves a dead
+  // strip at the bottom. Instead take the maximum bottom edge over every
+  // element, measured in a deliberately tall window so no element is clipped
+  // or squeezed while being measured.
+  const probe = OUT_HTML.replace('</body>', '<script>window.addEventListener("load",function(){' +
+    'var all=document.querySelectorAll("*");var d=0;' +
+    'for(var i=0;i<all.length;i++){' +
+    'var b=all[i].getBoundingClientRect().bottom;if(b>d)d=b}' +
+    'document.title="H:"+Math.ceil(d)})</script></body>')
+  const probePath = OUT_HTML.replace(/\.html$/, '.probe.html')
+  nodeFs.writeFileSync(probePath, probe, 'utf8')
+  let height = 800
+  try {
+    const dom = execFileSync(chrome, [
+      '--headless=new', '--disable-gpu', '--window-size=' + WIDTH + ',3000',
+      '--virtual-time-budget=4000', '--dump-dom',
+      'file:///' + probePath.replace(/\\/g, '/'),
+    ], { maxBuffer: 64 * 1024 * 1024 }).toString('utf8')
+    const m = /<title>H:(\d+)<\/title>/.exec(dom)
+    if (m) height = Number(m[1])
+  } catch (err) {
+    console.log('measure pass failed, falling back to', height, 'px:', err.message)
+  } finally {
+    try { nodeFs.unlinkSync(probePath) } catch (err) {}
+  }
+
+  // Two CSS px of slack: fractional layout heights otherwise shave the last row.
+  const windowSize = WIDTH + ',' + (height + 2)
+  console.log('screenshot at', windowSize, '(content', height, 'px)')
+  execFileSync(chrome, [
+    '--headless=new', '--disable-gpu', '--hide-scrollbars', '--force-device-scale-factor=2',
+    '--window-size=' + windowSize,
+    '--screenshot=' + OUT_PNG,
+    '--virtual-time-budget=3000',
+    'file:///' + OUT_HTML.replace(/\\/g, '/'),
+  ], { maxBuffer: 64 * 1024 * 1024 })
+  console.log('wrote', OUT_PNG, '(' + nodeFs.statSync(OUT_PNG).size + ' bytes)')
+}
+
+main().then(measureAndShoot).catch(function (e) { console.error('FAILED:', e.message); process.exit(1) })
+

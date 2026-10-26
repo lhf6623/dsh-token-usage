@@ -300,6 +300,11 @@ window.__ModuleLoader__.load({
   background: var(--dsw-alias-bg-layer-1);
 }
 .tku-group { display: inline-flex; align-items: center; gap: 6px; }
+/* The model group holds a wrapping chip set, so it needs the whole row and a
+   top-aligned label rather than the single-line baseline the segments use. */
+.tku-group-models { flex: 1 0 100%; align-items: flex-start; }
+.tku-group-models .tku-group-label { padding-top: 5px; flex: none; }
+.tku-group-models .tku-models { margin-top: 0; flex: 1; min-width: 0; }
 .tku-group-label { font-size: 12px; color: var(--dsw-alias-label-secondary); }
 
 .tku-seg {
@@ -379,52 +384,51 @@ window.__ModuleLoader__.load({
 .tku-panel-title { font-size: 13px; font-weight: 600; }
 .tku-panel-note { font-size: 11px; color: var(--dsw-alias-label-secondary); }
 
-/* The API dimension: an exclusive list, one row per model. */
-.tku-picker {
+/*
+ * The model dimension. Horizontal chips, not a vertical radio list: it now
+ * sits in the toolbar next to the scope and range segments, and a tall
+ * scrolling list there would push the chart off screen.
+ */
+.tku-models {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 12px;
-  max-height: 168px;
-  overflow-y: auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
 }
-.tku-pick {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  text-align: left;
+.tku-model {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   font: inherit;
   font-size: 12px;
-  padding: 5px 9px;
-  border-radius: 7px;
-  border: 1px solid transparent;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l1);
   background: transparent;
   color: var(--dsw-alias-label-primary);
   cursor: pointer;
+  max-width: 100%;
+  min-width: 0;
 }
-.tku-pick:hover { background: var(--dsw-alias-bg-layer-2); }
-.tku-pick[data-on='true'] {
+.tku-model:hover { background: var(--dsw-alias-bg-layer-2); }
+.tku-model[data-on='true'] {
   border-color: var(--dsw-alias-brand-primary);
   background: var(--dsw-alias-bg-layer-2);
 }
-.tku-pick-radio {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid var(--dsw-alias-border-l2);
+.tku-model-provider {
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tku-model[data-on='true'] .tku-model-provider { color: var(--dsw-alias-label-primary); }
+.tku-model-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tku-model-total {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
   flex: none;
-  box-sizing: border-box;
 }
-.tku-pick-radio[data-on='true'] {
-  border-color: var(--dsw-alias-brand-primary);
-  background:
-    radial-gradient(circle, var(--dsw-alias-brand-primary) 0 3px, transparent 3.5px);
-}
-.tku-pick-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
-.tku-pick-provider { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tku-pick-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tku-pick-total { color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; flex: none; }
 
 .tku-card-value-small { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tku-chip {
@@ -476,7 +480,9 @@ window.__ModuleLoader__.load({
 .tku-tip-swatch { width: 7px; height: 7px; border-radius: 2px; flex: none; }
 .tku-tip-value { font-variant-numeric: tabular-nums; }
 
-.tku-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 10px; }
+/* Legend sits ABOVE the plot: it names the four lines, so it should be read
+   before the chart, not discovered after it. It doubles as the toggle. */
+.tku-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 10px; }
 .tku-legend-item {
   display: inline-flex;
   align-items: center;
@@ -757,17 +763,21 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The API dimension is a single choice, not a filter set: showing several
+     * The model dimension is a single choice, not a filter set: showing several
      * models at once on one y-axis mixes incomparable traffic (a 200k-token
-     * batch model next to a 3k-token chat model) and makes the lines useless.
+     * batch model next to a 3k-token chat model) and flattens the smaller line.
+     *
+     * It lives in the toolbar rather than above the plot: it selects WHICH data
+     * the whole panel shows, so it belongs with the scope and range controls,
+     * not inside the chart it changes.
      */
-    function ApiPicker(props) {
+    function ModelPicker(props) {
       const apis = props.apis;
       const selectedKey = props.selectedKey;
       const t = props.t;
       if (apis.length === 0) return null;
 
-      return h('div', { className: 'tku-picker', role: 'radiogroup', 'aria-label': t('ui.api') },
+      return h('div', { className: 'tku-models', role: 'radiogroup', 'aria-label': t('ui.model') },
         apis.map(function (a) {
           const key = seriesKeyOf(a.provider, a.model);
           const on = key === selectedKey;
@@ -776,19 +786,17 @@ window.__ModuleLoader__.load({
             type: 'button',
             role: 'radio',
             'aria-checked': on,
-            className: 'tku-pick',
+            className: 'tku-model',
             'data-on': String(on),
             title: a.provider + ' / ' + a.model + ' — ' + formatFull(a.total) + ' / ' + formatFull(a.calls) + ' ' + t('ui.calls'),
             onClick: function () { props.onSelect(key); },
           },
-            h('span', { className: 'tku-pick-radio', 'data-on': String(on) }),
             // Provider reads first: several providers serve the same model name
-            // (three of them ship 'deepseek-flash'), so a list keyed on the model
-            // name alone looks like the same row repeated three times.
-            h('span', { className: 'tku-pick-body' },
-              h('span', { className: 'tku-pick-provider' }, a.provider),
-              h('span', { className: 'tku-pick-model' }, a.model)),
-            h('span', { className: 'tku-pick-total' }, formatCount(a.total)));
+            // (three of them ship 'deepseek-flash'), so a chip keyed on the model
+            // name alone looks like the same choice repeated three times.
+            h('span', { className: 'tku-model-provider' }, a.provider),
+            h('span', { className: 'tku-model-name' }, a.model),
+            h('span', { className: 'tku-model-total' }, formatCount(a.total)));
         }));
     }
 
@@ -1040,7 +1048,20 @@ window.__ModuleLoader__.load({
             onChange: selectRange,
             options: rangeOptions,
           })),
-        customBlock);
+        customBlock,
+        // The model picker is part of the toolbar because it selects WHICH
+        // data the panel shows — same role as scope and range. It needs the
+        // payload, so it only appears once data has arrived.
+        apis.length > 0
+          ? h('div', { className: 'tku-group tku-group-models' },
+              h('span', { className: 'tku-group-label' }, t('ui.model')),
+              h(ModelPicker, {
+                apis: apis,
+                selectedKey: activeKey,
+                t: t,
+                onSelect: setSelectedKey,
+              }))
+          : null);
 
       function retryButton() {
         return h('button', { type: 'button', className: 'tku-btn', onClick: refresh }, t('ui.retry'));
@@ -1112,18 +1133,9 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tku-panel-head' },
           h('div', { className: 'tku-panel-title' }, t('ui.timeline')),
           h('div', { className: 'tku-panel-note' }, t('ui.legendHint'))),
-        h(ApiPicker, {
-          apis: apis,
-          selectedKey: activeKey,
-          t: t,
-          onSelect: setSelectedKey,
-        }),
-        h(LineChart, {
-          buckets: buckets,
-          metrics: visibleMetrics,
-          bucket: effectiveBucket,
-          t: t,
-        }),
+        // Legend first, plot second: it identifies the four lines, so reading
+        // it after the chart would be backwards. The totals inside each chip
+        // also give the numbers for the selected model at a glance.
         h('div', { className: 'tku-legend' },
           METRICS.map(function (m) {
             const off = Boolean(hiddenMetrics[m.key]);
@@ -1136,12 +1148,19 @@ window.__ModuleLoader__.load({
               type: 'button',
               className: 'tku-legend-item',
               'data-off': String(off),
+              'aria-pressed': !off,
               onClick: function () { toggleMetric(m.key); },
             },
               h('span', { className: 'tku-chip-dot', style: { background: m.color } }),
               h('span', null, t(m.label)),
               h('span', { className: 'tku-legend-total' }, formatCount(sum)));
-          })));
+          })),
+        h(LineChart, {
+          buckets: buckets,
+          metrics: visibleMetrics,
+          bucket: effectiveBucket,
+          t: t,
+        }));
 
       const scan = data.scan || {};
       const tablePanel = h('div', { className: 'tku-panel' },

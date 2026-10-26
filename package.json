@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-usage",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Token usage dashboard for the DeepSeek Harness Web GUI: a Conversation view tab with one line chart for input, output and cache tokens, split by time range and API.",
   "type": "module",
@@ -27,7 +27,9 @@
   },
   "scripts": {
     "check": "node --check index.js && node --check client.js",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "screenshot": "node docs/make-screenshot.cjs",
+    "verify:screenshot": "node docs/check-screenshot.cjs"
   },
   "exports": {
     ".": "./index.js",
