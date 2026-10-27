@@ -57,12 +57,13 @@ function decodePNG(buf) {
   return { width: width, height: height, channels: channels, data: out }
 }
 
-// Line colours from client.js METRICS.
+// Line colours from client.js METRICS. Three, not four: cacheWrite is dropped
+// because DeepSeek never reports it (see NOTES.md §三.14), so asserting its
+// presence would fail on every correct build.
 const METRICS = {
   input: [0x4c, 0x8d, 0xff],
-  output: [0x22, 0xb0, 0x7d],
   cacheRead: [0xf2, 0x99, 0x4a],
-  cacheWrite: [0xa2, 0x59, 0xff],
+  output: [0x22, 0xb0, 0x7d],
 }
 
 function near(r, g, b, t) {
@@ -98,4 +99,4 @@ if (failed) {
   console.error('\nA metric is missing from the screenshot: the chart did not render.')
   process.exit(1)
 }
-console.log('\nall four lines are present in the screenshot')
+console.log('\nall three lines are present in the screenshot')

@@ -40,11 +40,13 @@ window.__ModuleLoader__.load({
       'ui.pickModelHint': '这个范围里有 {n} 个模型，选一个查看它的用量。',
       'ui.noModel': '这个范围里没有模型调用记录。',
       'ui.total': '合计',
+      'ui.uncachedInput': '未缓存输入',
       'ui.input': '输入',
       'ui.output': '输出',
-      'ui.cacheRead': '缓存读',
+      'ui.cacheRead': '缓存读取',
       'ui.cacheWrite': '缓存写',
       'ui.cache': '缓存',
+      'ui.cacheHitRate': '缓存命中率',
       'ui.reasoning': '推理',
       'ui.calls': '调用',
       'ui.api': 'API',
@@ -92,11 +94,13 @@ window.__ModuleLoader__.load({
       'ui.pickModelHint': 'This range has {n} models. Pick one to see its usage.',
       'ui.noModel': 'No model calls recorded in this range.',
       'ui.total': 'Total',
+      'ui.uncachedInput': 'Uncached input',
       'ui.input': 'Input',
       'ui.output': 'Output',
       'ui.cacheRead': 'Cache read',
       'ui.cacheWrite': 'Cache write',
       'ui.cache': 'Cache',
+      'ui.cacheHitRate': 'Cache hit rate',
       'ui.reasoning': 'Reasoning',
       'ui.calls': 'Calls',
       'ui.api': 'API',
@@ -121,11 +125,18 @@ window.__ModuleLoader__.load({
 
     // Fixed semantic colours: a metric keeps its hue across every range, bucket
     // and filter, so a colour always means the same thing on this chart.
+    //
+    // Three lines, not four. The four buckets the providers define are
+    // uncached input / cache read / cache write / output, but cacheWrite is
+    // never populated: DeepSeek's adapter maps only
+    // prompt_cache_hit_tokens to cacheReadTokens and has no wire field for
+    // cache creation, so a fourth line would draw a flat zero forever.
+    // Charting a metric that cannot be non-zero teaches the reader to ignore
+    // the chart. See NOTES.md §三.14.
     const METRICS = [
-      { key: 'input', label: 'ui.input', color: '#4c8dff' },
-      { key: 'output', label: 'ui.output', color: '#22b07d' },
+      { key: 'input', label: 'ui.uncachedInput', color: '#4c8dff' },
       { key: 'cacheRead', label: 'ui.cacheRead', color: '#f2994a' },
-      { key: 'cacheWrite', label: 'ui.cacheWrite', color: '#a259ff' },
+      { key: 'output', label: 'ui.output', color: '#22b07d' },
     ];
 
     // The unit suffix follows the UI language: Chinese reads 万 / 亿, not K / M.
@@ -862,12 +873,13 @@ window.__ModuleLoader__.load({
         h('th', null, t('ui.share'))));
 
       const total = combo.total || 0;
-      const rows = [
-        { key: 'input', label: t('ui.input'), value: combo.input || 0 },
-        { key: 'output', label: t('ui.output'), value: combo.output || 0 },
-        { key: 'cacheRead', label: t('ui.cacheRead'), value: combo.cacheRead || 0 },
-        { key: 'cacheWrite', label: t('ui.cacheWrite'), value: combo.cacheWrite || 0 },
-      ].map(function (row) {
+      // Derived from METRICS rather than hand-listed: a metric must never show
+      // in the table while missing from the chart, or vice versa. That drift is
+      // what left a permanently-zero 缓存写 row here after the line was dropped.
+      const rows = METRICS.map(function (metric) {
+        const row = { key: metric.key, label: t(metric.label), value: combo[metric.key] || 0 };
+        return row;
+      }).map(function (row) {
         const metric = METRICS.filter(function (m) { return m.key === row.key; })[0];
         const share = total > 0 ? ((row.value / total) * 100).toFixed(1) + '%' : '—';
         const barW = total > 0 ? Math.max(2, Math.round((row.value / total) * 60)) : 2;
@@ -1135,7 +1147,12 @@ window.__ModuleLoader__.load({
       }
 
       const calls = sums.calls;
-      const cacheTotal = sums.cacheRead + sums.cacheWrite;
+      // Billed input = uncached input + cache reads (cacheWrite is always 0 for
+      // DeepSeek, see METRICS). The hit rate is the share of prompt input that
+      // was served from cache — the one number here that is a ratio rather than
+      // a token count, and the reason caching is worth watching at all.
+      const promptInput = sums.input + sums.cacheRead;
+      const hitRate = promptInput > 0 ? (sums.cacheRead / promptInput) * 100 : 0;
 
       const cards = h('div', { className: 'tku-cards' },
         h(StatCard, {
@@ -1144,13 +1161,15 @@ window.__ModuleLoader__.load({
           full: formatFull(sums.total),
           note: formatFull(calls) + ' ' + t('ui.calls'),
         }),
-        h(StatCard, { label: t('ui.input'), value: formatCount(sums.input), full: formatFull(sums.input) }),
+        h(StatCard, { label: t('ui.uncachedInput'), value: formatCount(sums.input), full: formatFull(sums.input) }),
+        h(StatCard, { label: t('ui.cacheRead'), value: formatCount(sums.cacheRead), full: formatFull(sums.cacheRead) }),
         h(StatCard, { label: t('ui.output'), value: formatCount(sums.output), full: formatFull(sums.output) }),
         h(StatCard, {
-          label: t('ui.cache'),
-          value: formatCount(cacheTotal),
-          full: formatFull(cacheTotal),
-          note: sums.total > 0 ? ((cacheTotal / sums.total) * 100).toFixed(1) + '%' : undefined,
+          label: t('ui.cacheHitRate'),
+          value: promptInput > 0 ? hitRate.toFixed(1) + '%' : '—',
+          note: promptInput > 0
+            ? formatFull(sums.cacheRead) + ' / ' + formatFull(promptInput)
+            : undefined,
         }),
         h(StatCard, {
           label: t('ui.avg'),
@@ -1193,10 +1212,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'tku-legend' },
           METRICS.map(function (m) {
             const off = Boolean(hiddenMetrics[m.key]);
-            const sum = m.key === 'input' ? sums.input
-              : m.key === 'output' ? sums.output
-              : m.key === 'cacheRead' ? sums.cacheRead
-              : sums.cacheWrite;
+            const sum = sums[m.key] || 0;
             return h('button', {
               key: m.key,
               type: 'button',

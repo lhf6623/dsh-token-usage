@@ -201,7 +201,7 @@ test('ships both dictionaries under its own namespace', async function () {
 test('renders every metric as one line on a single chart', async function () {
   const ctx = await boot()
   assert.strictEqual(harness.countType(ctx.tree, 'svg'), 1, 'exactly one chart')
-  assert.strictEqual(pathCount(ctx.tree), 4, 'four metric lines')
+  assert.strictEqual(pathCount(ctx.tree), 3, 'three metric lines')
   assert.strictEqual(harness.countType(ctx.tree, 'table'), 1, 'one breakdown table')
 })
 
@@ -225,7 +225,7 @@ test('offers every API found in the data as a choice', async function () {
 test('charts exactly one model at a time', async function () {
   const ctx = await boot()
   // The busiest model is preselected, so the chart is never blank on open.
-  assert.strictEqual(pathCount(ctx.tree), 4, 'still four metric lines')
+  assert.strictEqual(pathCount(ctx.tree), 3, 'still three metric lines')
   const card = text(ctx.tree)
   assert.ok(card.indexOf('fan') >= 0, 'shows the provider of the selected model')
 
@@ -272,9 +272,9 @@ test('picking another model never refetches', async function () {
 
 test('the breakdown table describes the selected model only', async function () {
   const ctx = await boot()
-  assert.strictEqual(rowCount(ctx.tree), 5, 'header + one row per metric')
+  assert.strictEqual(rowCount(ctx.tree), 4, 'header + one row per metric')
   const body = text(ctx.tree)
-  for (const label of ['输入', '输出', '缓存读', '缓存写']) {
+  for (const label of ['未缓存输入', '缓存读取', '输出']) {
     assert.ok(body.indexOf(label) >= 0, label + ' listed')
   }
 })
@@ -282,14 +282,14 @@ test('the breakdown table describes the selected model only', async function () 
 test('legend toggles metrics, not models', async function () {
   const ctx = await boot()
   fetchCalls.length = 0
-  clickOnce(ctx.tree, function (s) { return s.indexOf('缓存写') === 0 })
+  clickOnce(ctx.tree, function (s) { return s.indexOf('缓存读取') === 0 })
   const tree = await harness.renderRoot(ctx.build)
-  assert.strictEqual(pathCount(tree), 3, 'one metric hidden')
+  assert.strictEqual(pathCount(tree), 2, 'one metric hidden')
   assert.strictEqual(fetchCalls.length, 0, 'hiding a metric must not refetch')
 
-  clickOnce(tree, function (s) { return s.indexOf('缓存写') === 0 })
+  clickOnce(tree, function (s) { return s.indexOf('缓存读取') === 0 })
   const back = await harness.renderRoot(ctx.build)
-  assert.strictEqual(pathCount(back), 4, 'line restored')
+  assert.strictEqual(pathCount(back), 3, 'line restored')
 })
 
 test('every time preset moves the window and refetches once', async function () {
@@ -478,4 +478,42 @@ test('units switch back when the language changes again', async function () {
   ctx.setLang('zh')
   const zh = await harness.renderRoot(ctx.build)
   assert.ok(text(zh).indexOf('万') >= 0, 'switching back restores 万')
+})
+// --- the metric set is exactly the one the data can fill -----------------
+// cacheWrite exists in the payload but DeepSeek never reports it (its adapter
+// has no wire field for cache creation), so it must not come back as a line.
+test('no permanently-zero 缓存写 line is charted', async function () {
+  const ctx = await boot()
+  const body = text(ctx.tree)
+  assert.strictEqual(body.indexOf('缓存写'), -1, '缓存写 must not appear in the UI')
+  assert.strictEqual(pathCount(ctx.tree), 3, 'three lines, one per reportable bucket')
+})
+
+test('the three lines are 未缓存输入 / 缓存读取 / 输出', async function () {
+  const ctx = await boot()
+  const labels = []
+  harness.walk(ctx.tree, function (el) {
+    if (el.props && el.props.className === 'tku-legend-item') labels.push(text(el).replace(/[0-9.,]+[万亿KMB]?$/, '').trim())
+  })
+  assert.strictEqual(labels.length, 3, 'three legend entries')
+  // Order follows METRICS: uncached input, cache read, output.
+  assert.ok(labels[0].indexOf('未缓存输入') === 0, 'first is 未缓存输入, got ' + labels[0])
+  assert.ok(labels[1].indexOf('缓存读取') === 0, 'second is 缓存读取, got ' + labels[1])
+  assert.ok(labels[2].indexOf('输出') === 0, 'third is 输出, got ' + labels[2])
+})
+
+test('the cache hit-rate card reports cache reads over prompt input', async function () {
+  const ctx = await boot()
+  let label = null
+  let value = null
+  harness.walk(ctx.tree, function (el) {
+    if (el.props && el.props.className === 'tku-card-label' && text(el) === '缓存命中率') label = el
+  })
+  assert.ok(label, 'hit-rate card exists')
+  harness.walk(ctx.tree, function (el) {
+    if (el.props && el.props.className === 'tku-card-value' && /^[0-9.]+%$/.test(text(el))) value = text(el)
+  })
+  assert.ok(value, 'hit rate is a percentage')
+  const pct = Number(value.replace('%', ''))
+  assert.ok(pct > 0 && pct <= 100, 'hit rate in range, got ' + value)
 })

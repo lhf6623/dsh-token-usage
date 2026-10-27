@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-usage",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "description": "Token usage dashboard for the DeepSeek Harness Web GUI: a Conversation view tab with one line chart for input, output and cache tokens, split by time range and API.",
   "type": "module",
